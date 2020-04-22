@@ -131,6 +131,8 @@ class Function : public BaseFunc {
 namespace attr {
 /*! \brief Mark the function as a primitive function. */
 constexpr const char* kPrimitive = "Primitive";
+/*! \brief Mark the function with a function name. */
+constexpr const char* kName = "Name";
 /*!
  * \brief Indicate the compiler that should be used for builing this function.
  * When this is unset or set to "default", the default compilation pipeline will be used.

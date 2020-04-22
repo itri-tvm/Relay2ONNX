@@ -607,6 +607,107 @@ def AnnotateTarget(targets):
     return _ffi_api.AnnotateTarget([tvm.runtime.container.String(t) for t in targets])
 
 
+def PartitionGraphByExpr(subexpr, func_name = None, device_type = 0, dtype = None):
+    """Partition a Relay graph to subgraph with Relay expression.
+    Parameters
+    ----------
+    subexpr: tvm.relay.Expr
+        The sub graph.
+    func_name: string or boolean, optional
+        Specific the name of the function.
+    device_type: int, optional
+        Specific the device to run the subgraph.
+    dtype: string, optional
+        Specific the data type to cast.
+    Returns
+    -------
+    ret: tvm.relay.Pass
+        The registered pass that partitions the Relay function.
+    """
+    return _ffi_api.PartitionGraphByExpr(subexpr, func_name, device_type, dtype)
+
+
+def PartitionGraphInOrder(op_attrs, include = [], exclude = [], func_name = None, device_type = 0, dtype = None):
+    """Partition a Relay graph to subgraph with ordered operators.
+    Parameters
+    ----------
+    op_attrs : list of tuple (str, Attrs)
+        The specific operators to fuse.
+    func_name: string or boolean, optional
+        Specific the name of the function.
+    device_type: int, optional
+        Specific the device to run the subgraph.
+    dtype: string, optional
+        Specific the data type to cast.
+    Returns
+    -------
+    ret: tvm.relay.Pass
+        The registered pass that partitions the Relay function.
+    """
+    return _ffi_api.PartitionGraphInOrder(op_attrs, include, exclude, func_name, device_type, dtype)
+
+def PartitionGraphInUnorder(op_attrs = [], func_name = None, device_type = 0, dtype = None):
+    """Partition a Relay graph to subgraph with unordered operators.
+    Parameters
+    ----------
+    op_attrs : list of tuple (str, Attrs)
+        The specific operators to fuse.
+    func_name: string or boolean, optional
+        Specific the name of the function.
+    device_type: int, optional
+        Specific the device to run the subgraph.
+    dtype: string, optional
+        Specific the data type to cast.
+    Returns
+    -------
+    ret: tvm.relay.Pass
+        The registered pass that partitions the Relay function.
+    """
+    return _ffi_api.PartitionGraphInUnorder(op_attrs, func_name, device_type, dtype)
+
+def DefuseOps():
+    """Defuse Relay function to multiply operators.
+
+    Returns
+    -------
+    ret : tvm.relay.Pass
+        The registered type DefuseOps pass.
+    """
+    return _ffi_api.DefuseOps()  
+
+def FuseFuncs(limit_num = 0):
+    """Fuse multiple functions to one function.
+    Parameters
+    ----------
+    limit_num: int
+        The limit of function to fuse. (default is infinity)
+    Returns
+    -------
+    ret : tvm.relay.Pass
+        The registered type DefuseOps pass.
+    """
+    return _ffi_api.FuseFuncs(limit_num)  
+
+def FuseSpecifiedOps(op_attrs, device_type = 0, fuse_opt_level=-1):
+    """Fuse operators in an expr to a larger operator according to some rules.
+
+    Parameters
+    ----------
+    op_attrs : list of tuple (str, Attrs)
+        The specific operator to fuse.
+    device_type: int, optional
+        Specific the device to run the subgraph.
+    fuse_opt_level : int
+        The level of fuse optimization. -1 indicates that the level will be
+        inferred from pass context.
+
+    Returns
+    -------
+    ret : tvm.relay.Pass
+        The registered pass for operator fusion.
+    """
+    return _ffi_api.FuseSpecifiedOps(op_attrs, device_type, fuse_opt_level)
+
 def Inline():
     """Perform inlining on the given Relay IR module. The global functions that
     are marked as `inline` should be always inlined. A cost model will be
