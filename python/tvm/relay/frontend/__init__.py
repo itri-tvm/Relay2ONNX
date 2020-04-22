@@ -31,6 +31,7 @@ from .mxnet_qnn_op_utils import get_mkldnn_uint8_scale
 from .mxnet_qnn_op_utils import quantize_conv_bias_mkldnn_from_var
 from .keras import from_keras
 from .onnx import from_onnx
+from .to_onnx import to_onnx, to_onnx_check_non_suppoted_op
 from .tflite import from_tflite
 from .coreml import from_coreml
 from .caffe2 import from_caffe2

@@ -38,7 +38,7 @@ PKG_LDFLAGS =
 
 
 all:
-	@mkdir -p build && cd build && cmake .. && $(MAKE)
+	@mkdir -p build && cd build && cmake .. -DUSE_LLVM=ON -DUSE_CUDA=ON -DUSE_OPENCL=ON && $(MAKE)
 
 runtime:
 	@mkdir -p build && cd build && cmake .. && $(MAKE) runtime
