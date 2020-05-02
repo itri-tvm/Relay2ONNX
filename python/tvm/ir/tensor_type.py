@@ -53,4 +53,4 @@ class TensorType(Type):
         ------
         TypeError : If the shape is symbolic
         """
-        return tuple(int(x) for x in self.shape)
+        return tuple(x if isinstance(x, tvm.tir.Any) else int(x) for x in self.shape)

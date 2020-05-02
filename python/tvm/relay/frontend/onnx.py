@@ -462,6 +462,26 @@ class Gemm(OnnxOpConverter):
                            inputs[1], units=channels)
         return _op.nn.bias_add(out, _expr.const(beta) * inputs[2])
 
+    @classmethod
+    def _impl_v11(cls, inputs, attr, params):
+        # Y = alpha * A * B + beta * C
+        alpha = float(attr.get('alpha', 1.0))
+        transA = int(attr.get('transA', 0))
+        transB = int(attr.get('transB', 0))
+        # get number of channels
+        channels = infer_channels(inputs[1], not transB)
+        if transA:
+            inputs[0] = _op.transpose(inputs[0], axes=(1, 0))
+        if not transB:
+            inputs[1] = _op.transpose(inputs[1], axes=(1, 0))
+        inputs[0] = _op.nn.batch_flatten(inputs[0])
+        out = _op.nn.dense(_expr.const(alpha) * inputs[0],
+                           inputs[1], units=channels)
+        if len(inputs) >= 3:
+            beta = float(attr.get('beta', 1.0))
+            out = _op.nn.bias_add(out, _expr.const(beta) * inputs[2])
+        return out
+
 
 class MatMul(OnnxOpConverter):
     """ Operator converter for MatMul.
@@ -920,7 +940,6 @@ class Slice(OnnxOpConverter):
     def _impl_v10(cls, inputs, attr, params):
         starts = params[get_name(inputs[1])].asnumpy()
         ends = params[get_name(inputs[2])].asnumpy()
-
         # Update the starts and ends according to axes if required.
         if len(inputs) >= 4:
             axes = params[get_name(inputs[3])].asnumpy()
@@ -930,7 +949,11 @@ class Slice(OnnxOpConverter):
                     starts, ends, axes)
                 starts = new_starts
                 ends = new_ends
-        return _op.strided_slice(inputs[0], begin=starts, end=ends)
+        if len(inputs) >= 5:
+            strides = params[get_name(inputs[4])].asnumpy()
+        else:
+            strides = None
+        return _op.strided_slice(inputs[0], begin=starts, end=ends, strides=strides)
 
 
 class Gather(OnnxOpConverter):
@@ -1104,7 +1127,7 @@ class OneHot(OnnxOpConverter):
         # Extract the datatype of the output from on_value.
         dtype = infer_type(on_value).checked_type.dtype
         # Convert depth into an integer.
-        depth = int(infer_value(depth, params).asnumpy()[0])
+        depth = int(infer_value(depth, params).asnumpy())
         # set default value when axis is not set in the model
         if 'axis' not in attr:
             attr['axis'] = -1
@@ -1726,9 +1749,9 @@ class GraphProto(object):
                     outputs_num = 1
                 else:
                     outputs_num = len(op)
-                assert len(node_output) == outputs_num, (
-                    "Number of output mismatch {} vs {} in {}.".format(
-                        len(node_output), outputs_num, op_name))
+#                 assert len(node_output) == outputs_num, (
+#                     "Number of output mismatch {} vs {} in {}.".format(
+#                         len(node_output), outputs_num, op_name))
                 if outputs_num == 1:
                     self._nodes[node_output[0]] = op
                 else:
