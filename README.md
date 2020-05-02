@@ -48,4 +48,4 @@ We learned a lot from the following projects when building TVM.
 
 Relay2ONNX
 ----------
-We provide 70 operator conversions and tested 15 onnx models from [ONNX Model Zoo](https://github.com/onnx/models) and [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch) in [model_test.py](https://github.com/itri-tvm/Relay2ONNX/tree/ellaine/tests/python/frontend/to_onnx/model_test.py). All the operators and models are listed in [README.md](https://github.com/itri-tvm/Relay2ONNX/tree/ellaine/python/tvm/relay/frontend/README.md).
+We provide 73 operator conversions and tested 15 onnx models from [ONNX Model Zoo](https://github.com/onnx/models) and [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch) in [model_test.py](https://github.com/itri-tvm/Relay2ONNX/tree/ellaine/tests/python/frontend/to_onnx/model_test.py). All the operators and models are listed in [README.md](https://github.com/itri-tvm/Relay2ONNX/tree/ellaine/python/tvm/relay/frontend/README.md).
