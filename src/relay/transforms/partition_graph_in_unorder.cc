@@ -106,10 +106,10 @@ public:
 		auto func = Function(params, body, InferType(body), { });
 		if (func_name_!="") {
 			//Set defined function name
-			func = WithAttr(std::move(func), attr::kName, func_name_);
+			func = WithAttr(std::move(func), attr::kComposite, func_name_);
 		} else if (func_name_=="") {
 			// Auto set function name.
-			func = WithAttr(std::move(func), attr::kName,
+			func = WithAttr(std::move(func), attr::kComposite,
 					tvm::String(subgraph->func_name.str()));
 		} else if (func_name_.empty()) {
 			// Do not set function name
@@ -146,11 +146,27 @@ public:
 					* if call_node is referenced by more than one operators.
 					* Make a param and return.
 					*/
-					auto current = current_;
-					current_ = nullptr;
-					new_expr = ExprMutator::VisitExpr_(call_node);
+					auto last = current_;
+					current_ = std::make_shared<Subgraph>();
+					current_->func_name << "fused";
+					auto new_subgraph = current_;
+					for (auto arg : call_node->args) {
+						Expr new_arg = this->VisitExpr(arg);
+						auto is_call = new_arg.as<CallNode>();
+						if (!is_call || (is_call && !InOpAttrs(is_call))) {
+							new_arg = Cast(new_arg, data_type_);
+							new_arg = current_->GetOrAllocParam(new_arg,
+										InferType(new_arg));
+						}
+						new_args.push_back(new_arg);
+					}
+					new_expr = Call(call_node->op, new_args,
+							call_node->attrs, call_node->type_args);
+					current_->func_name << "_"<< ConvertOpName(call_node->op.as<OpNode>()->name);
+					new_expr = MakeCastDTypeDeviceFunc(new_subgraph, new_expr,
+							call_node->checked_type());
 					new_expr = Cast(new_expr, data_type_);
-					new_expr = current->GetOrAllocParam(new_expr, InferType(new_expr));
+					new_expr = last->GetOrAllocParam(new_expr, InferType(new_expr));
 				}else{
 					/*
 					* Otherwise, visit its args and get or allocate new param to subgraph for each arg

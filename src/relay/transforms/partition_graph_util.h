@@ -38,10 +38,13 @@
 namespace tvm {
 namespace relay {
 namespace partition {
+
+static auto fpattern_ =
+    Op::GetAttr<TOpPattern>("TOpPattern");
 // The packed function to make cast operator.
-const PackedFunc cast_ = (*tvm::runtime::Registry::Get("relay.ir.cast"));
+static auto cast_ = (*tvm::runtime::Registry::Get("relay.ir.cast"));
 // The packed function to make cast operator.
-const PackedFunc on_device_ = (*tvm::runtime::Registry::Get(
+static auto on_device_ = (*tvm::runtime::Registry::Get(
 		"relay.op.annotation._make.on_device"));
 class AttrsComparor{
 public:

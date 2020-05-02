@@ -57,10 +57,10 @@ public:
 		for (size_t i = 0; i < op_attrs.size();i++)
 		{
 			if( Downcast<String>(op_attrs[i][0]) == op->name){
-				if (!op_attrs_[i][1].defined())
+				if (!op_attrs[i][1].defined())
 					return true;
 				else{
-					auto attrs = Downcast<Attrs>(op_attrs_[i][1]);
+					auto attrs = Downcast<Attrs>(op_attrs[i][1]);
 					LOG_IF(FATAL, op->attrs_type_index!=attrs->type_index())
 							<< "The input attrs type is not consistant with the op name, \""
 							<< op->name
@@ -163,9 +163,7 @@ public:
 			if (VisitExpr(op->args[i], order + 1)) {
 				current_->nodes.insert(GetRef<Expr>(op));
 				if (op->op.as<OpNode>()) {
-					current_->func_name << "_";
-					current_->func_name
-							<< ConvertOpName(op->op.as<OpNode>()->name);
+					current_->func_name << "_"<< ConvertOpName(op->op.as<OpNode>()->name);
 				}
 				return true;
 			}
@@ -265,10 +263,10 @@ public:
 		auto func = Function(params, body, InferType(body), { });
 		if (func_name_!="") {
 			//Set defined function name
-			func = WithAttr(std::move(func), attr::kName, func_name_);
+			func = WithAttr(std::move(func), attr::kComposite, func_name_);
 		} else if (func_name_=="") {
 			// Auto set function name.
-			func = WithAttr(std::move(func), attr::kName,
+			func = WithAttr(std::move(func), attr::kComposite,
 					tvm::String(subgraph->func_name.str()));
 		} else if (func_name_.empty()) {
 			// Do not set function name

@@ -378,13 +378,12 @@ TVM_DLL Pass PartitionGraphInOrder(Array<Array<ObjectRef>> op_attrs, Array<Array
  */
 TVM_DLL Pass PartitionGraphInUnorder(Array<Array<ObjectRef>> op_attrs, String func_name, int device_type, DataType data_type);
 /*! \brief Partition the graph to subgraph depending on sub Relay expression, annotate device type and computing data type.
- * \param subexpr Sub Relay expression.
- * \param func_name The specified function name.
+ * \param func_list The list of subgraphs to fused.
  * \param device_type The specified device type.
  * \param data_type The specified data type.
  * \return the pass.
  */
-TVM_DLL Pass PartitionGraphByExpr(Expr subexpr, String func_name, int device_type, DataType data_type);
+TVM_DLL Pass PartitionGraphByExpr(Array<Array<ObjectRef>> func_list, int device_type, DataType data_type);
 
 
 /*! \brief Defuse Relay function to multiply operators.

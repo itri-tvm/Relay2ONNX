@@ -607,14 +607,12 @@ def AnnotateTarget(targets):
     return _ffi_api.AnnotateTarget([tvm.runtime.container.String(t) for t in targets])
 
 
-def PartitionGraphByExpr(subexpr, func_name = None, device_type = 0, dtype = None):
+def PartitionGraphByExpr(func_list, device_type = 0, dtype = None):
     """Partition a Relay graph to subgraph with Relay expression.
     Parameters
     ----------
-    subexpr: tvm.relay.Expr
-        The sub graph.
-    func_name: string or boolean, optional
-        Specific the name of the function.
+    func_list: list of tvm.relay.Expr
+        The list of subgraphs to fused.
     device_type: int, optional
         Specific the device to run the subgraph.
     dtype: string, optional
@@ -624,7 +622,7 @@ def PartitionGraphByExpr(subexpr, func_name = None, device_type = 0, dtype = Non
     ret: tvm.relay.Pass
         The registered pass that partitions the Relay function.
     """
-    return _ffi_api.PartitionGraphByExpr(subexpr, func_name, device_type, dtype)
+    return _ffi_api.PartitionGraphByExpr(func_list, device_type, dtype)
 
 
 def PartitionGraphInOrder(op_attrs, include = [], exclude = [], func_name = None, device_type = 0, dtype = None):
@@ -646,7 +644,7 @@ def PartitionGraphInOrder(op_attrs, include = [], exclude = [], func_name = None
     """
     return _ffi_api.PartitionGraphInOrder(op_attrs, include, exclude, func_name, device_type, dtype)
 
-def PartitionGraphInUnorder(op_attrs = [], func_name = None, device_type = 0, dtype = None):
+def PartitionGraphInUnorder(op_attrs = [], func_name = "", device_type = 0, dtype = None):
     """Partition a Relay graph to subgraph with unordered operators.
     Parameters
     ----------

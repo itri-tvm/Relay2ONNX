@@ -709,7 +709,7 @@ class GraphPartitioner {
 				Array<Attrs> attrs_list;
 				for (size_t i = 0; i < op_attrs_.size();i++)
 				{
-					if( Downcast<String>(op_attrs_[i][0]) == op->name){
+					if( op_attrs_[i].defined() && Downcast<String>(op_attrs_[i][0]) == op->name){
 						if(!op_attrs_[i][1].defined()){
 							return true;
 						}
@@ -742,7 +742,7 @@ class GraphPartitioner {
       Group* group_node = groups_[nid];
       CHECK(group_node != nullptr);
       if (!IsIncluded(graph_node)) continue;
-      if(!IsBiasAdd(group_node->root_ref))
+      if(!IsBiasAdd(group_node->root_ref) || (IsBiasAdd(group_node->root_ref) && group_node->num_nodes>1))
     	  group_node->partition = true;
       // no actions for opaque nodes
       if (group_node->pattern == kOpaque) continue;
@@ -865,6 +865,9 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
     for (size_t nid = 0; nid < graph.post_dfs_order.size(); ++nid) {
       CHECK(graph.post_dfs_order[nid]->ref != nullptr);
       gmap_[graph.post_dfs_order[nid]->ref] = groups[nid];
+      auto* ret_group = gmap_[graph.post_dfs_order[nid]->ref]->FindRoot();
+      if(ginfo_[ret_group].func_name.str() == "")
+    	  ginfo_[ret_group].func_name << "fused";
     }
     // The following line can be used for debug.
     // this->DebugDumpGroup(body);
@@ -878,6 +881,8 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
   /*! \brief Temporary information from each group. */
   struct GroupInfo {
    public:
+	// \brief Function name.
+	std::ostringstream func_name;
     // The parameters of the function.
     Array<Var> params;
     // The arguments to call the functions.
@@ -930,6 +935,7 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
         return ExprMutator::VisitExpr(call->args[0]);
       }
       auto* ret_group = gmap_.at(call)->FindRoot();
+      ginfo_[ret_group].func_name<<"_"<< ConvertOpName(call->op.as<OpNode>()->name);
       Array<Expr> new_args = GetNewArguments(call->args, ret_group);
 
       auto new_call = Call(
@@ -954,6 +960,7 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
     if (ret_group->root_ref == tuple) {
       return ExprMutator::VisitExpr_(tuple);
     }
+
     // This tuple is an intermediate node in the group
     Array<Expr> new_fields = GetNewArguments(tuple->fields, ret_group);
     return Tuple(new_fields);
@@ -977,8 +984,8 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
   }
 
   Expr MakeNewFunction(GraphPartitioner::Group* group, int device_type, Type ret_type, Expr body) {
-	  if(!group->partition)
-		  return body;
+	if(!group->partition)
+		return body;
 	// If the function has no call, it is not a primitive function.
     struct HasCallVisitor : ExprVisitor {
       bool has_call = false;
@@ -990,6 +997,7 @@ class FuseSpecifiedOpsMutator : private ExprMutator {
     const GroupInfo& ginfo = ginfo_[group];
     auto func = Function(ginfo.params, body, ret_type, {});
     func = WithAttr(std::move(func), attr::kPrimitive, tvm::Integer(visitor.has_call));
+    func = WithAttr(std::move(func), attr::kComposite, tvm::String(ginfo.func_name.str()));
     Expr new_expr = Call(func, ginfo.arguments, Attrs());
 	if (device_type != 0) {
 		new_expr = on_device_(new_expr, device_type);

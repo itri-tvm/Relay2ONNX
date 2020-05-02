@@ -37,7 +37,7 @@ public:
 		std::vector<std::pair<Expr, Var>> args;
 		// \brief The old expr and new expr of the output in this subgraph.
 		std::pair<Expr, Expr> output;
-		// \brief Function name.
+		// \brief The name of the composite function.
 		std::ostringstream func_name;
 		// Get a new parameter or allocate an old one.
 		Var GetOrAllocParam(const Expr &expr, const Type &type) {
@@ -127,6 +127,7 @@ public:
 		if(!AttrsComparor::CompareNonDefault(scall->attrs, call->attrs))
 			return false;
 		current_->nodes.insert(call->op);
+		current_->func_name<<"_"<< ConvertOpName(call->op.as<OpNode>()->name);
 		size_t equal_count = 0;
 		size_t idx = 0;
 		for (size_t i = 0; i < scall->args.size(); i++) {
@@ -315,6 +316,14 @@ public:
 	Expr MakeCastDTypeDeviceFunc(
 			std::shared_ptr<ExprComparator::Subgraph> &subgraph, Expr &body,
 			const Type raw_type) {
+	    // If the function has no call, it is not a primitive function.
+	    struct HasCallVisitor : ExprVisitor {
+	      bool has_call = false;
+	      void VisitExpr_(const CallNode* op) final {
+	        has_call = true;
+	      }
+	    } visitor;
+	    visitor(body);
 		Array<Var> params;
 		Array<Expr> arguments;
 		for (auto pair : subgraph->args) {
@@ -324,10 +333,10 @@ public:
 		auto func = Function(params, body, InferType(body), { });
 		if (func_name_!="") {
 			//Set defined function name
-			func = WithAttr(std::move(func), attr::kName, func_name_);
+			func = WithAttr(std::move(func), attr::kComposite, func_name_);
 		} else if (func_name_=="") {
 			// Auto set function name.
-			func = WithAttr(std::move(func), attr::kName,
+			func = WithAttr(std::move(func), attr::kComposite,
 					tvm::String(subgraph->func_name.str()));
 		} else if (func_name_.empty()) {
 			// Do not set function name
@@ -335,7 +344,8 @@ public:
 			LOG(WARNING)
 					<< "The type of func name must be boolean or string.";
 		}
-		func = WithAttr(std::move(func), attr::kPrimitive, tvm::Integer(1));
+		//func = WithAttr(std::move(func), attr::kPattern, tvm::Integer(pattern_));
+		func = WithAttr(std::move(func), attr::kPrimitive, tvm::Integer(visitor.has_call));
 		Expr new_call = Call(func, arguments, Attrs());
 		if (device_type_ != 0) {
 			new_call = on_device_(new_call, device_type_);
@@ -367,7 +377,7 @@ public:
 				memo_[expr] = new_expr;
 			} else if (last_subgraph && new_subgraph) {
 				// Check if expr is a boundaries of a graph.
-				// If expr VisitExpres with subexpr_,
+				// If expr matchs with subexpr_,
 				// Record the nodes in the new subgraph.
 				current_ = new_subgraph;
 				// Tarverse the expr.
@@ -380,10 +390,11 @@ public:
 				new_expr = last_subgraph->GetOrAllocParam(new_expr,
 						InferType(new_expr));
 			} else if (last_subgraph && !new_subgraph) {
-				// If expr doesn't VisitExpr with subexpr_,
+				// If expr doesn't match with subexpr_,
 				// Tarverse the expr.
 				current_ = nullptr;
 				new_expr = ExprFunctor::VisitExpr(expr);
+
 				memo_[expr] = new_expr;
 				new_expr = Cast(new_expr, data_type_);
 				// Get or allocate a parameter.
@@ -435,26 +446,56 @@ private:
 	// Internal visiting counter
 	std::unordered_map<const Object*, size_t> visit_counter_;
 };
-Expr PartitionGraphByExpr(const Expr subexpr, const String func_name,
-		const int device_type, const DataType data_type, const Expr expr,
+Expr PartitionGraphByExpr(const Array<Array<ObjectRef>> func_list, const int device_type, const DataType data_type, const Expr expr,
 		const IRModule model) {
+	Expr new_expr = expr;
+	for(size_t i=0; i< func_list.size();i++)
+	{
+		auto func = func_list[i];
+		auto len = func.size();
+		if (len == 0){
+			LOG(WARNING)
+					<< i<<"-th func in func_list is null.";
+			continue;
+		}
 
-	if(subexpr.as<FunctionNode>())
-		return partition::GraphPartitionerByExpr(model, subexpr.as<FunctionNode>()->body, func_name, device_type,
-					data_type).Partition(expr);
-	else
-		return partition::GraphPartitionerByExpr(model, subexpr, func_name, device_type,
-					data_type).Partition(expr);
+		Expr subexpr;
+		String func_name = "";
+		if (len >=1 && func[0].defined()){
+			subexpr = Downcast<Expr>(func[0]);
+		}else{
+			LOG(WARNING)
+					<< "The expr of "<<i<<"-th func is not defined.";
+			continue;
+		}
+		//if(len >=2 && func[1].defined())
+		//	pattern = int(Downcast<Integer>(func[1]));
+		if(len >=2 && func[1].defined())
+			func_name = std::string(Downcast<String>(func[1]));
+		if(len >=3){
+			LOG(WARNING)
+					<< "The list of "<<i<<"-th func is too long. Can only define the subgraph to fused and the function name.";
+		}
+		if (auto f = subexpr.as<FunctionNode>()){
+			new_expr = partition::GraphPartitionerByExpr(model, f->body, func_name, device_type,
+						data_type).Partition(new_expr);
+		}
+		else{
+			new_expr = partition::GraphPartitionerByExpr(model, subexpr, func_name, device_type,
+						data_type).Partition(new_expr);
+		}
+	}
+	return new_expr;
 }
 } // namespace partition
 
 namespace transform {
-Pass PartitionGraphByExpr(Expr subexpr, String func_name, int device_type,
+Pass PartitionGraphByExpr(Array<Array<ObjectRef>> func_list, int device_type,
 		DataType data_type) {
 	runtime::TypedPackedFunc<Function(Function, IRModule, PassContext)> pass_func =
 			[=](Function f, IRModule m, PassContext pc) {
 
-				return Downcast<Function>(partition::PartitionGraphByExpr(subexpr, func_name, device_type,
+				return Downcast<Function>(partition::PartitionGraphByExpr(func_list, device_type,
 								data_type, f, m));
 			};
 	return CreateFunctionPass(pass_func, 1, "PartitionGraphByExpr", {});
