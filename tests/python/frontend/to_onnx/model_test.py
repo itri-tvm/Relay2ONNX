@@ -10,6 +10,11 @@ from efficientnet_pytorch import EfficientNet
 from PIL import Image
 from torchvision import transforms
 import netron
+from tvm.relay.frontend.common import infer_shape, infer_value_simulated
+from tvm.relay import testing
+from tvm.relay.op.nn.nn import batch_flatten
+from topi.transform import shape
+
 def get_rt_mod(inputs, mod, params):
     target = {"cpu": "llvm"}   
     cpu_ctx = tvm.context("cpu")
@@ -27,7 +32,15 @@ def print_different(before, after):
     before = before.split('\n')
     after = after.split('\n')
     i, j = 0, 0
-    while i < len(before) and j < len(after):
+    while i < len(before) or j < len(after):
+        if i >= len(before):
+            after_lines.append(after[j])
+            i, j = i-1, j+1
+            continue
+        if j >= len(after):
+            before_lines.append(before[i])
+            i, j = i+1, j-1
+            continue
         if before[i] == after[j]:
             i, j = i+1, j+1
         else:
@@ -41,7 +54,7 @@ def print_different(before, after):
                 after_lines.append(after[j])
                 i, j = i+1, j+1
             else:
-                i, j = ti, j if ti - i < tj - j else i, tj
+                i, j = (ti, j) if ti - i < tj - j else (i, tj)
     print('before:')
     for line in before_lines:
         print(line)
@@ -51,8 +64,6 @@ def print_different(before, after):
 def load_img_and_run(model_path, data_path, model_name, show_netron =False):
     print('{}...'.format(model_name))
     onnx_model = onnx.load(model_path)
-    opset = onnx_model.opset_import[0].version
-    print('Opset from:',opset)
     if show_netron:
         netron.start(model_path, port=9930)
     before_opset = onnx_model.opset_import[0].version
@@ -78,55 +89,61 @@ def load_img_and_run(model_path, data_path, model_name, show_netron =False):
     mod, params = relay.frontend.from_onnx(onnx_model, shape=shape_dict)
     rt_mod = get_rt_mod(inputs, mod, params)
     before_output = rt_mod.get_output(0, tvm.nd.empty(output_shape, 'float32')).asnumpy()
-    onnx_model = relay.frontend.to_onnx(mod, params, model_name,opset=opset)
+    after_opset = before_opset
+    print('Opset from',before_opset, 'to', after_opset)
+    onnx_model = relay.frontend.to_onnx(mod, params,model_name, opset=after_opset)
     onnx.save(onnx_model, 'model.onnx')
     if show_netron:
         netron.start('model.onnx', port=3030)
     onnx_model = onnx.load('model.onnx')
-    after_opset = onnx_model.opset_import[0].version
     mod, params = relay.frontend.from_onnx(onnx_model, shape=shape_dict)
     rt_mod = get_rt_mod(inputs, mod, params)
     after_output = rt_mod.get_output(0, tvm.nd.empty(output_shape, 'float32')).asnumpy()
-    
     assert np.array_equal(before_output, after_output), 'The outputs of are different!'
 def load_pb_and_run(model_path, data_path, model_name, show_netron = False):
     print('{}...'.format(model_name))
     onnx_model = onnx.load_model(model_path)
-    opset = onnx_model.opset_import[0].version
-    print('Opset from:',opset)
     if show_netron:
         netron.start(model_path)
-    new_tensor = onnx.TensorProto() # 先建立一個空的 TensorProto 物件
+    new_tensor = onnx.TensorProto()
     with open(data_path, 'rb') as f:
         new_tensor.ParseFromString(f.read())
     before_opset = onnx_model.opset_import[0].version
     params_name = [param.name for param in onnx_model.graph.initializer]
-    shape_dict = {} 
-    data = numpy_helper.to_array(new_tensor)  
+    shape_list = []
+    data = numpy_helper.to_array(new_tensor) 
+    data_shape =  data.shape
     for input_tensor in onnx_model.graph.input:
         if input_tensor.name not in params_name:
             input_name = input_tensor.name
             input_shape =[]
             for i, dim in enumerate(input_tensor.type.tensor_type.shape.dim):
-                input_shape.append(dim.dim_value if isinstance(dim.dim_value, int) else data.shape[i])
-            shape_dict[input_name]=input_shape
-    data = data.reshape(input_shape)
-    inputs = {input_name:data}
+                x = dim.dim_value if dim.dim_value != 0 else data_shape[i]
+                input_shape.append(x)
+            shape_list.append((input_name, input_shape))
+    if len(shape_list) ==1:
+        data = data.reshape(shape_list[0][1])
+        inputs = {shape_list[0][0]:data}
+    elif len(shape_list) ==2:
+        data = data.reshape(shape_list[0][1])
+        inputs = {shape_list[0][0]:data, shape_list[1][0]: np.array(data.shape[-2:])}    
     output_shape = [dim.dim_value for dim in onnx_model.graph.output[0].type.tensor_type.shape.dim]
+    shape_dict = shape={k:v for k,v in shape_list}
     mod, params = relay.frontend.from_onnx(onnx_model, shape=shape_dict)
-    #print(before)
+    type = infer_shape(mod['main']).ret_type 
     rt_mod = get_rt_mod(inputs, mod, params)
-    before_output = rt_mod.get_output(0, tvm.nd.empty(output_shape, 'float32')).asnumpy()
-    onnx_model = relay.frontend.to_onnx(mod, params,model_name, opset=opset)
+    before_output = rt_mod.get_output(0, tvm.nd.empty(type.shape, type.dtype)).asnumpy()
+    after_opset = before_opset
+    print('Opset from', before_opset, 'to', after_opset)
+    onnx_model = relay.frontend.to_onnx(mod, params,model_name, opset=after_opset)
     onnx.save(onnx_model, 'model.onnx')
     if show_netron:
         netron.start('model.onnx', port=3030)
     onnx_model = onnx.load('model.onnx')
-    after_opset = onnx_model.opset_import[0].version
-    print(after_opset)
-    mod, params = relay.frontend.from_onnx(onnx_model, shape=shape_dict)     
+    mod, params = relay.frontend.from_onnx(onnx_model, shape=shape_dict)
+    type = infer_shape(mod['main']).ret_type 
     rt_mod = get_rt_mod(inputs, mod, params)
-    after_output = rt_mod.get_output(0, tvm.nd.empty(output_shape, 'float32')).asnumpy()
+    after_output = rt_mod.get_output(0, tvm.nd.empty(type.shape, type.dtype)).asnumpy()
     assert np.array_equal(before_output, after_output), 'The outputs of are different!'
 def lenet5(show_netron = False):
     model_name = 'lenet5'
@@ -219,47 +236,95 @@ def efficientnet(show_netron = False):
     data_path = '../../model/efficientnet/pytorch/img2.jpg'
     # save_efficientnet_from_pytorch(model_name,model_path)
     load_img_and_run(model_path,data_path, model_name, show_netron)
-def unit_test(mod, model_name, shape_dict={}, params={},show_netron = False):
-    before = str(mod)
-    onnx_model = relay.frontend.to_onnx(mod, params, model_name)
+def  unit_test(mod, model_name, params, show_netron = False, opset = None, shape_dict = {}):
+    before_print = str(mod)
+    expr = mod['main'].body
+    before_output = infer_value_simulated(expr, params).asnumpy()
+    onnx_model = relay.frontend.to_onnx(mod, params, model_name, opset)
     onnx.save(onnx_model, 'model.onnx')
     if show_netron:
         netron.start('model.onnx')
+    for v in relay.analysis.free_vars(expr):
+        if v not in params:
+            shape_dict[v.name_hint] = v.checked_type.shape
     mod, params = relay.frontend.from_onnx(onnx_model, shape_dict)
-    after = str(mod)
-    if before==after:
-        print('Graphs are the same.')
-    else:
-        print('Graphs are different.')
-        print_different(before, after) 
-    return mod, params
+    affter_print = str(mod)
+    after_output = infer_value_simulated(expr, params).asnumpy()
+    # print_different(before_print, affter_print)
+    assert np.array_equal(before_output, after_output), 'The outputs of are different:\nBefore:\n{}\nAfter:\n{}'.format(before_output, after_output)
 def strided_slice_test(show_netron = False):
     model_name = 'strided_slice'
     print('{}...'.format(model_name))
-    x = relay.var('x',shape = (10,))
-    p0 = relay.strided_slice(x, [1],[3], strides = [2])
-    f = relay.Function([x], p0)
-    mod = tvm.IRModule.from_expr(f)
-    before = str(mod)
-    params={'x':np.array([0,1,2,3,4,5,6,7,8,9])}
-    params = {k:tvm.nd.array(v.astype('float32'))for k,v in params.items()}
-    shape_dict = {'x': (10,)}
-    mod, params = unit_test(mod, model_name, shape_dict, params, show_netron)
+    data = relay.var('data_weight',shape = (10,1))
+    p0 = relay.strided_slice(data, [1],[3], strides = [2])
+    mod, params =testing.create_workload(p0)
+    unit_test(mod, model_name, params, show_netron)
 def one_hot_test(show_netron = False):
     model_name = 'one_hot'
     print('{}...'.format(model_name))
-    indices = relay.var('indices',shape = (3,))
-    values = relay.var('values',shape = (2,))
+    indices = relay.var('indices_weight',shape = (3,1))
+    values = relay.var('values_weight',shape = (2,1))
     off_value, on_value = relay.take(values,relay.const(0)),relay.take(values, relay.const(1))
     p0 = relay.one_hot(indices, on_value, off_value, depth = 2, axis=-1, dtype='float32')
-    f = relay.Function([indices, values], p0)
-    mod = tvm.IRModule.from_expr(f)
-    
-    # print(before)
-    params={'indices':np.array([0,1,2]),'values':np.array([0.1,0.5])}
-    params = {k:tvm.nd.array(v.astype('float32'))for k,v in params.items()}
-    shape_dict = {}
-    mod, params = unit_test(mod, model_name, shape_dict, params, show_netron)
+    mod, params =testing.create_workload(p0)
+    unit_test(mod, model_name, params, show_netron)
+def full_like_test(show_netron = False):
+    model_name = 'full_like'
+    print('{}...'.format(model_name))
+    data = relay.var('data_weight', shape=(10,1), dtype = 'int8')
+    fill_value = relay.const(1.0)
+    #fill_value = relay.var('1_weight', shape=(1))
+    p0 = relay.full_like(data, fill_value)
+    mod, params =testing.create_workload(p0)
+    unit_test(mod, model_name, params, show_netron)
+def full_test(show_netron = False):
+    model_name = 'full'
+    print('{}...'.format(model_name))
+    data = relay.const(10)
+    p0 = relay.full(data, shape=(10,), dtype = 'int8')
+    mod, params =testing.create_workload(p0)
+    unit_test(mod, model_name, params, show_netron, opset=9)
+def dense_test(show_netron = False):
+    model_name = 'nn.dense'
+    print('{}...'.format(model_name))
+    data = relay.var('data_weight',shape = (1, 2, 3, 3))
+    w0 = relay.var('0_weight', shape = (1, 18))
+    b0 = relay.var('0_bias', shape = (1,))
+    p0 = relay.nn.batch_flatten(data)
+    p1 = relay.nn.dense(p0, w0)
+    p2 = relay.nn.bias_add(p1, b0, axis=0)
+    mod, params =testing.create_workload(p2)
+    unit_test(mod, model_name, params, show_netron, opset=9)    
+def matmul_test(show_netron = False):
+    model_name = 'fused_matmul'
+    print('{}...'.format(model_name))
+    data = relay.var('data_weight',shape = (1, 1,5))
+    w0 = relay.var('0_weight', shape = (1, 5, 1))
+    b0 = relay.var('0_bias', shape = (1,))
+    p0 = relay.transpose(w0, axes=(0,2,1))
+    p1 = relay.nn.batch_matmul(data, p0)
+    p2 = relay.nn.bias_add(p1, b0, axis=0)
+    mod, params =testing.create_workload(p2)
+    unit_test(mod, model_name, params, show_netron, opset=9)    
+
+def split_test(show_netron = False):
+    model_name = 'split'
+    print('{}...'.format(model_name))
+    data = relay.var('data_weight',shape = (1, 10, 3, 3))
+    p0 = relay.split(data, indices_or_sections=2, axis =1)
+    p1 = p0[0]
+    mod, params =testing.create_workload(p1)
+    unit_test(mod, model_name, params, show_netron, opset=9)
+def nonzero_test(show_netron = False):
+    model_name = 'nonzero'
+    print('{}...'.format(model_name))
+    a = relay.var('a_weight',shape = (2,2))
+    b = relay.var('b_weight',shape = (2,2))
+    p0 = relay.greater(a, b)
+    p1 = relay.argwhere(p0)
+    p2 = relay.transpose(p1, (1,0))
+    mod, params =testing.create_workload(p2)
+    unit_test(mod, model_name, params, show_netron, opset=9)
 if __name__ == "__main__":
     logging.disable(logging.WARNING)
 #     lenet5()         
@@ -277,7 +342,13 @@ if __name__ == "__main__":
 #     shufflenet_v1()
 #     shufflenet_v2()
 #     zfnet512()
-    efficientnet()
-#     strided_slice_test()
-#     one_hot_test()
+#     efficientnet()
+    strided_slice_test()
+    one_hot_test()
+    full_like_test()
+    full_test()
+    dense_test()
+    matmul_test()
+    split_test()
+    nonzero_test()
     print('Finish!')
