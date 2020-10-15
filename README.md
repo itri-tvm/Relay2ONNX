@@ -45,3 +45,7 @@ We learned a lot from the following projects when building TVM.
   originates from Halide. We also learned and adapted some part of lowering pipeline from Halide.
 - [Loopy](https://github.com/inducer/loopy): use of integer set analysis and its loop transformation primitives.
 - [Theano](https://github.com/Theano/Theano): the design inspiration of symbolic scan operator for recurrence.
+
+Relay2ONNX
+----------
+We provide 74 operator conversions and tested 15 onnx models from [ONNX Model Zoo](https://github.com/onnx/models) and [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch) in [model_test.py](https://github.com/itri-tvm/Relay2ONNX/tree/relay2onnx/tests/python/converter/onnx/model_test.py). All the operators and models are listed in [README.md](https://github.com/itri-tvm/Relay2ONNX/tree/relay2onnx/python/tvm/relay/converter/README.md).
