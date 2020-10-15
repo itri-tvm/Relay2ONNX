@@ -164,6 +164,12 @@ class BaseAttrsNode : public Object {
    */
   TVM_DLL virtual void VisitNonDefaultAttrs(AttrVisitor* v) = 0;
   /*!
+   * \brief Visit "each" non default attributes. (no trigger)
+   *
+   * \param v The visitor
+   */
+  TVM_DLL virtual void VisitEachNonDefaultAttrs (AttrVisitor *v) = 0;
+  /*!
    * \brief Get the field information
    * \return The fields in the Attrs.
    */
@@ -212,6 +218,7 @@ class DictAttrsNode : public BaseAttrsNode {
   // implementations
   void VisitAttrs(AttrVisitor* v) final;
   void VisitNonDefaultAttrs(AttrVisitor* v) final;
+  void VisitEachNonDefaultAttrs(AttrVisitor *v) final;
   void InitByPackedArgs(const runtime::TVMArgs& args, bool allow_unknown) final;
   Array<AttrFieldInfo> ListFieldInfo() const final;
   // type info
@@ -639,6 +646,51 @@ class AttrNonDefaultVisitor {
  private:
   AttrVisitor* visitor_;
 };
+
+template<typename T>
+struct AttrVisitorNonDefaultEntry {
+	using TSelf = AttrVisitorNonDefaultEntry<T>;
+	// constructor
+	AttrVisitorNonDefaultEntry(AttrVisitor *visitor, const char *key, T *data) :
+			visitor_(visitor), key_(key), data_(data) {
+	}
+
+	~AttrVisitorNonDefaultEntry() DMLC_THROW_EXCEPTION {
+
+	}
+	TSelf& describe(DMLC_ATTRIBUTE_UNUSED const char *str) {
+		return *this;
+	}
+	TSelf& set_default(const T &value) {
+		if (!tvm::StructuralEqual()(value, *data_))
+			visitor_->Visit(key_, data_);
+		return *this;
+	}
+	TSelf& set_lower_bound(DMLC_ATTRIBUTE_UNUSED const T &begin) {
+		return *this;
+	}
+	TSelf& set_upper_bound(DMLC_ATTRIBUTE_UNUSED const T &end) {
+		return *this;
+	}
+
+private:
+	AttrVisitor *visitor_;
+	const char *key_;
+	T *data_;
+};
+class EachAttrNonDefaultVisitor {
+public:
+	explicit EachAttrNonDefaultVisitor(AttrVisitor *visitor) :
+			visitor_(visitor) {
+	}
+	template<typename T>
+	AttrVisitorNonDefaultEntry<T> operator()(const char *key, T *value) {
+		return AttrVisitorNonDefaultEntry<T>(visitor_, key, value);
+	}
+
+private:
+	AttrVisitor *visitor_;
+};
 }  // namespace detail
 
 /*!
@@ -659,7 +711,11 @@ class AttrsNode : public BaseAttrsNode {
     ::tvm::detail::AttrNonDefaultVisitor vis(v);
     self()->__VisitAttrs__(vis);
   }
-
+  void VisitEachNonDefaultAttrs(AttrVisitor *v)
+  {
+    ::tvm::detail::EachAttrNonDefaultVisitor vis(v);
+    self()->__VisitAttrs__(vis);
+  }
   void InitByPackedArgs(const runtime::TVMArgs& args, bool allow_unknown) final {
     CHECK_EQ(args.size() % 2, 0);
     const int kLinearSearchBound = 16;

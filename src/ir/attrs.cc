@@ -31,6 +31,9 @@ void DictAttrsNode::VisitAttrs(AttrVisitor* v) { v->Visit("__dict__", &dict); }
 
 void DictAttrsNode::VisitNonDefaultAttrs(AttrVisitor* v) { v->Visit("__dict__", &dict); }
 
+void DictAttrsNode::VisitEachNonDefaultAttrs(AttrVisitor* v) {  v->Visit("__dict__", &dict);}
+
+
 void DictAttrsNode::InitByPackedArgs(const runtime::TVMArgs& args, bool allow_unknown) {
   for (int i = 0; i < args.size(); i += 2) {
     std::string key = args[i];

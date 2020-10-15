@@ -50,6 +50,7 @@ from .op.tensor import *
 from .op.transform import *
 from .op.algorithm import *
 from . import frontend
+from . import converter
 from . import backend
 from . import quantize
 from . import data_dep_optimization
