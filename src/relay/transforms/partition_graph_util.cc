@@ -51,10 +51,7 @@ bool AttrsComparor::CompareNonDefault(const Attrs pself,
 			&visitor);
 	return visitor.result_;
 }
-std::unordered_map<const Object*, size_t> RefVisitor::GetCounter(Expr expr) {
-	ExprVisitor::VisitExpr(expr);
-	return visit_counter_;
-}
+
 Type InferType(const Expr expr) {
 	Function func = Function(FreeVars(expr), expr, Type(),
 			FreeTypeVars(expr, IRModule()), { });

@@ -249,8 +249,7 @@ public:
 	}
 	Expr Partition(Expr expr) {
 
-		auto visitor = RefVisitor();
-		visit_counter_ = visitor.GetCounter(expr);
+		visit_counter_ = GetExprRefCount(expr);
 		return ExprMutator::Mutate(expr);
 	}
 	// Get the subgraph by the id.

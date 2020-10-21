@@ -117,10 +117,6 @@ private:
 
 };
 
-class RefVisitor: public ExprVisitor {
-public:
-	std::unordered_map<const Object*, size_t> GetCounter(Expr expr);
-};
 /*
  * \brief Infer the type of expression.
  * \param expr the Relay expression.

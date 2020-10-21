@@ -313,8 +313,7 @@ public:
 	}
 	Expr Partition(Expr expr) {
 
-		auto visitor = RefVisitor();
-		visit_counter_ = visitor.GetCounter(expr);
+		visit_counter_ = GetExprRefCount(expr);
 		return ExprMutator::Mutate(expr);
 	}
 	std::shared_ptr<ExprComparator::Subgraph> Match(const Expr &expr) {
@@ -409,7 +408,6 @@ public:
 						<< "The type of func name must be string.";
 			}
 		}
-		//func = WithAttr(std::move(func), attr::kPattern, tvm::Integer(pattern_));
 		func = WithAttr(std::move(func), attr::kPrimitive, tvm::Integer(visitor.has_call));
 		Expr new_call = Call(func, arguments, Attrs());
 		if (device_type_ != 0) {

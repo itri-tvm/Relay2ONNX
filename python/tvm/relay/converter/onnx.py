@@ -29,7 +29,7 @@ from ..function import Function
 from ..expr import Var, Call, TupleGetItem, Tuple
 from ..expr import Constant as Const
 from ..expr_functor import ExprVisitor
-from ..transform import PartitionGraphInOrder, PartitionGraphInUnorder, PartitionGraphByExpr
+from ..transform import PartitionGraphInOrder, PartitionGraphInUnorder, PartitionGraphByExpr, ConvertLayout, DefuseOps
 from ..frontend.common import new_var, infer_type, infer_value_simulated
 
 import onnx
@@ -286,6 +286,7 @@ class ConvTranspose(ToOnnxOpConverter):
     name = 'ConvTranspose'
     @classmethod
     def convert(cls, graph, inputs, attrs):
+        assert attrs['data_layout']=="NCHW", "ONNX only supports NCHW data layout for ConvTranspose."
         def cvtpadding2pads(padding):
             if len(padding) == 1:
                 return [padding[0], padding[0] , padding[0] , padding[0]]
@@ -319,6 +320,7 @@ class Conv(ToOnnxOpConverter):
     name = 'Conv'
     @classmethod
     def convert(cls, graph, inputs, attrs):
+        assert attrs['data_layout']=="NCHW", "ONNX only supports NCHW data layout for Conv."
         def cvtpadding2pads(padding):
             if len(padding) == 1:
                 return [padding[0], padding[0] , padding[0] , padding[0]]
@@ -917,6 +919,20 @@ class Cast(ToOnnxOpConverter):
             return NP_TYPE_TO_TENSOR_TYPE[np.dtype(dtype)]
         return AttrCvt(cls.name, transforms={'dtype':('to', None, cvtdtypeto)})(graph, inputs, attrs)
 
+class LayoutTransform(ToOnnxOpConverter):
+    """ Operator converter for layout transform op."""
+    name = "LayoutTransform"
+    @classmethod
+    def convert_layout(cls, attrs):
+        src_layout = attrs["src_layout"]
+        dst_layout = attrs["dst_layout"]
+        assert len(src_layout)==len(dst_layout), "The lenght of source layout and destination layout is not equal. Can't convert \"layout_transform\" to \"Transform\"."
+        perm = [src_layout.index(c) for c in dst_layout]
+        return {'perm': tuple(perm)}
+    @classmethod
+    def _impl_v1(cls, graph, inputs, attrs={}, args=None):
+        return  ONNXNode('Transpose')(graph, inputs, attrs=cls.convert_layout(attrs))
+
 _identity_list = []
 
 
@@ -1053,6 +1069,7 @@ def _get_impl_map(opset):
         'argwhere': Argwhere.get_impl(opset),
         'fused_nonzero':NonZero.get_impl(opset),
         'topk':TopK.get_impl(opset),
+        'layout_transform':LayoutTransform.get_impl(opset),
 #         'vision.non_max_suppression': NonMaxSuppression.get_impl(opset),
     }
 def tvm_array_to_list(object):
@@ -1184,7 +1201,7 @@ class ONNXGenerator(ExprVisitor):
         self.name_map = {}
         self.func_attrs = {}
         self.parent_map = {}
-        self.in_func = False
+        self.func_name = ""
     def to_onnx(self, func):
         assert isinstance(func, Function), 'func must be tvm.relay.Function.'
         # Traverse relay function
@@ -1199,7 +1216,7 @@ class ONNXGenerator(ExprVisitor):
         new_name = get_func_major_op(name)
         if func_attrs is None:
             return new_name, new_attrs
-        else:    
+        else:
             for call, attrs in func_attrs.items():
                 if call.op.name == new_name:
                     new_attrs.update(attrs)
@@ -1207,49 +1224,56 @@ class ONNXGenerator(ExprVisitor):
             new_attrs.update(func_attrs)
             return name, new_attrs
     def visit_constant(self, const):
-        if not self.in_func:
+        if not self.func_name:
             self.name_map[const] = self.graph.add_const(const)
     def visit_var(self, v):
-        if not self.in_func:
+        if not self.func_name:
             self.graph.add_var(v)
             self.name_map[v] = [v.name_hint]
     def visit_tuple(self, t):
         self.name_map[t] = []
-        if not self.in_func:
+        if not self.func_name:
             for x in t.fields:
                 self.visit(x)
                 self.name_map[t].extend(self.name_map[x])
         else:
-            super(GraphVisitor, self).visit_tuple(t)
+            super(ONNXGenerator, self).visit_tuple(t)
     def visit_tuple_getitem(self, op):
-        if not self.in_func:
+        if not self.func_name:
             self.visit(op.tuple_value)
             self.name_map[op] = [self.name_map[op.tuple_value][op.index]]
             self.graph.final_outputs = self.name_map[op]
             self.graph.ret_types = [op.tuple_value.checked_type.fields[op.index]]
         else:
-            super(GraphVisitor, self).visit_tuple_getitem(t)    
+            super(ONNXGenerator, self).visit_tuple_getitem(t)    
     def visit_call(self, c):
-        if not self.in_func:
+        if not self.func_name:
             node_params={'inputs':[]}
             name = ''
+            func_name = ''
             if isinstance(c.op, Op):
                 name = c.op.name
                 node_params['op_name'] = name
                 attrs = convert_attrs_to_dict(c.attrs)
                 node_params['attrs']=attrs
             elif isinstance(c.op, Function):
-                func_name = str(c.op.attrs['global_symbol'])
-                self.in_func = True
+                self.func_name = str(c.op.attrs['global_symbol'])
+                func_name = self.func_name
                 self.visit(c.op)
-                self.in_func = False
-                name, attrs = self.get_func_attrs(func_name, self.func_attrs)
+                name, attrs = self.get_func_attrs(self.func_name, self.func_attrs)
                 node_params['op_name'] = name
                 node_params['attrs']=attrs
                 self.func_attrs.clear()
+                name_split = self.func_name.split('_')
+                if name_split[2][:4]=="conv" and name_split[3]=="add" and type(c.args[2]) in (Const, Var):
+                    data = infer_value_simulated(c.args[2], self.graph.params).asnumpy()
+                    data = data.flatten()
+                    c.args = [c.args[0], c.args[1], _op.const(data, dtype=infer_dtype(c.args[2]))]
+                self.func_name = ""
             for a in c.args:
                 self.visit(a)
                 node_params['inputs'].extend(self.name_map.get(a, []))
+            func_name = ""
             self.name_map[c] = self.graph.add_nodes(c, **node_params)    
         else:
             self.func_attrs[c] = convert_attrs_to_dict(c.attrs)
@@ -1281,7 +1305,18 @@ def fused_gemm():
             for b in (1, 0):
                 func_list.append((gemm(ta,tb, b), "fused_gemm"))
     return PartitionGraphByExpr(func_list)
-def fused_conv_nn_bias():
+def fused_nn_conv_add():
+    """Fuse the series of convolution ops and bias add ops"""
+    return PartitionGraphInOrder(
+        op_attrs = [('add', None), None],
+        include = [('nn.conv1d', None),
+                   ('nn.conv2d', None),
+                   ('nn.conv3d', None),
+                   ('nn.conv1d_transpose', None),
+                   ('nn.conv2d_transpose', None)],
+        func_name = ''
+    )
+def fused_nn_conv_nn_bias_add():
     """Fuse the series of convolution ops and bias add ops"""
     return PartitionGraphInOrder(
         op_attrs = [('nn.bias_add', None), None],
@@ -1330,27 +1365,7 @@ def fused_matmul():
     return PartitionGraphByExpr([(dense(),'fused_matmul'),(batch_matmul(),'fused_matmul')])
 def fuse_ops(model):
     "Fuse the Relay ops to fit ONNX model"
-    return Sequential([fused_gemm(), fused_conv_nn_bias(), fused_unsqueeze(), fused_onehot(), fused_matmul(), fused_nonzero()])(model)
-
-def check_non_suppoted_op_to_onnx(tar_ops):
-    """Check if operators in list are not supported for Relay to ONNX conversion.
-    Parameters
-    ----------
-    tar_ops : list of str
-        The target operator names.
-    Returns
-    -------
-    no_ops : list of str
-        The operator names which is not supported by TVM.
-    """
-    no_ops = []
-    exception = ['nn.bias_add']
-    ops = _get_impl_map(1).keys()
-    for op in tar_ops:
-        if op not in ops and op not in exception: # nn.bias_add is exception.
-            no_ops.append(op)
-    return no_ops
-
+    return Sequential([fused_gemm(), fused_nn_conv_add(), fused_nn_conv_nn_bias_add(), fused_unsqueeze(), fused_onehot(), fused_matmul(), fused_nonzero()])(model)
 
 def to_onnx(model, params={}, graph_name="", opset = None, doc_string=None):
     """Convert a Relay Function into ONNX model.
@@ -1382,6 +1397,13 @@ def to_onnx(model, params={}, graph_name="", opset = None, doc_string=None):
     else:
         raise TypeError(
                 'The paramter "model" must be tvm.IRModule or tvm.relay.Function.')
+    
+    # Optimize
+    desired_layouts = {'nn.conv2d':['NCHW', "default"], 'nn.conv3d':['NCHW', "default"], 'nn.conv2d_transpose':['NCHW', "default"]}
+    with tvm.transform.PassContext(opt_level=4, disabled_pass=("CanonicalizeOps", "AlterOpLayout")):
+        model = ConvertLayout(desired_layouts)(model)
+        model, params = tvm.relay.optimize(model, "llvm", params)
+        model = DefuseOps()(model) 
     # Fuse op
     model = fuse_ops(model)
     func = model['main']

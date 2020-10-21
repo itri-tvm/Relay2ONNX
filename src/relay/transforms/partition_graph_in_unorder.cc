@@ -33,8 +33,7 @@ public:
 						device_type), data_type_(data_type) {
 	}
 	Expr Partition(Expr expr) {
-		auto visitor = RefVisitor();
-		visit_counter_ = visitor.GetCounter(expr);
+		visit_counter_ = GetExprRefCount(expr);
 		return ExprMutator::Mutate(expr);
 	}
 	struct Subgraph {

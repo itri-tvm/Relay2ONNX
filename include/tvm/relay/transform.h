@@ -443,7 +443,7 @@ TVM_DLL Pass PartitionGraphByExpr(Array<Array<ObjectRef>> func_list, int device_
  *
  * \return the registered PartitionGraphByExpr pass.
  */
-
+TVM_DLL Pass DefuseOps();
 }  // namespace transform
 
 /*!
