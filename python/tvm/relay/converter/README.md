@@ -1,6 +1,6 @@
 Relay2ONNX
 ----------
-We provide 74 operator conversions and tested 15 onnx models from [ONNX Model Zoo](https://github.com/onnx/models) and [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch) in [model_test.py](https://github.com/itri-tvm/Relay2ONNX/tree/ellaine/tests/python/converter/onnx/model_test.py).
+We provide 74 operator conversions and tested 15 onnx models from [ONNX Model Zoo](https://github.com/onnx/models) and [EfficientNet PyTorch](https://github.com/lukemelas/EfficientNet-PyTorch) in [model_test.py](https://github.com/itri-tvm/Relay2ONNX/blob/relay2onnx/tests/python/converter/onnx/model_test.py).
 
 Model List
 ----------
